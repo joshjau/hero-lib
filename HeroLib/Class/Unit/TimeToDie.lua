@@ -74,10 +74,24 @@ function HL.TTDRefresh()
         -- Check if it's a valid unit
         if Player:CanAttack(ThisUnit) and HealthPercentage < 100 then
           local UnitTable = Units[GUID]
-          -- Check if we have seen one time this unit, if we don't then initialize it.
-          if not UnitTable or HealthPercentage > UnitTable[1][1][2] then
+          if not UnitTable then
             UnitTable = { {}, CurrentTime }
             Units[GUID] = UnitTable
+          else
+            local UnitValues = UnitTable[1]
+            local LastValue = UnitValues and UnitValues[1]
+            if not UnitValues or not LastValue or HealthPercentage > LastValue[2] then
+              if UnitValues then
+                for Index = 1, #UnitValues do
+                  TTDCache[#TTDCache + 1] = UnitValues[Index]
+                  UnitValues[Index] = nil
+                end
+              else
+                UnitValues = {}
+                UnitTable[1] = UnitValues
+              end
+              UnitTable[2] = CurrentTime
+            end
           end
           local Values = UnitTable[1]
           local Time = CurrentTime - UnitTable[2]
@@ -112,6 +126,16 @@ function HL.TTDRefresh()
   -- Ideally this should be event driven or done at least once a second if not less
   for Key in pairs(Units) do
     if not ExistingUnits[Key] then
+      local RemovedUnit = Units[Key]
+      if RemovedUnit then
+        local RemovedValues = RemovedUnit[1]
+        if RemovedValues then
+          for Index = 1, #RemovedValues do
+            TTDCache[#TTDCache + 1] = RemovedValues[Index]
+            RemovedValues[Index] = nil
+          end
+        end
+      end
       Units[Key] = nil
     end
   end
@@ -281,11 +305,17 @@ function Unit:TimeToDie(MinSamples)
     TTD = {}
     UnitInfo.TTD = TTD
   end
-  if not TTD[MinSamples] then
-    TTD[MinSamples] = self:TimeToX(self:SpecialTTDPercentage(self:NPCID()), MinSamples)
+  local SpecialPercentage = self:SpecialTTDPercentage(self:NPCID())
+  local TTDEntry = TTD[MinSamples]
+  if not TTDEntry or TTDEntry.Percentage ~= SpecialPercentage then
+    TTDEntry = {
+      Percentage = SpecialPercentage,
+      Value = self:TimeToX(SpecialPercentage, MinSamples)
+    }
+    TTD[MinSamples] = TTDEntry
   end
 
-  return TTD[MinSamples]
+  return TTDEntry.Value
 end
 
 -- Get the boss unit TimeToDie
