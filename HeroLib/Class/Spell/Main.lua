@@ -22,7 +22,7 @@ local pairs                  = pairs
 local GetSpellCastCount      = C_Spell.GetSpellCastCount
 -- Accepts: spellIdentifier; Returns: castCount (number)
 local GetSpellInfo           = C_Spell.GetSpellInfo
--- Accepts: spellIdentifier; Returns: spellInfo (SpellInfo: castTime, name, minRange, originalIconID, iconID, maxRange, spellID)
+-- Accepts: spellIdentifier; Returns: spellInfo (SpellInfo: castTime, name, originalIconID, iconID, maxRange, spellID)
 local GetSpellPowerCost      = C_Spell.GetSpellPowerCost
 -- Accepts: spellIdentifier; Returns: powerCosts (table of costs: hasRequiredAura, type, name, cost, minCost, requiredAuraID, costPercent, costPerSec)
 local GetSpellOverride       = C_Spell.GetOverrideSpell
@@ -30,11 +30,20 @@ local GetSpellOverride       = C_Spell.GetOverrideSpell
 local IsSpellUsable          = C_Spell.IsSpellUsable
 -- Accepts: spellIdentifier; Returns: isUsable (bool), insufficientPower (bool)
 
--- Base API locals
-local IsPlayerSpell          = IsPlayerSpell
--- Accepts: spellIdentifier; Returns: isPlayerSpell (bool)
-local IsSpellKnown           = IsSpellKnown
--- Accepts: spellIdentifier; Returns: isSpellKnown (bool) (Sometimes false for known spells? Example: Fracture, ID: 263642)
+-- C_SpellBook locals
+local SpellBookIsSpellKnown  = C_SpellBook and C_SpellBook.IsSpellKnown
+local SpellBookSpellBank     = Enum and Enum.SpellBookSpellBank
+
+local function SpellIsKnown(spellID, checkPet)
+  local checkPetBool = checkPet and true or false
+
+  if SpellBookIsSpellKnown and SpellBookSpellBank then
+    local bank = checkPetBool and SpellBookSpellBank.Pet or SpellBookSpellBank.Player
+    return SpellBookIsSpellKnown(spellID, bank)
+  end
+
+  return false
+end
 
 -- File Locals
 
@@ -112,12 +121,12 @@ end
 
 -- Check if the spell Is Available or not.
 function Spell:IsAvailable(CheckPet)
-  return CheckPet and IsSpellKnown(self.SpellID, true) or IsPlayerSpell(self.SpellID)
+  return SpellIsKnown(self.SpellID, CheckPet)
 end
 
 -- Check if the spell Is Known or not.
 function Spell:IsKnown(CheckPet)
-  return IsSpellKnown(self.SpellID, CheckPet and true or false)
+  return SpellIsKnown(self.SpellID, CheckPet)
 end
 
 -- Check if the spell Is Known (including Pet) or not.
@@ -125,7 +134,7 @@ function Spell:IsPetKnown()
   return self:IsKnown(true)
 end
 
--- Check if the spell Is Usable or not.
+-- Check if the spell Is Usable or not. Returns: isUsable (bool), insufficientPower (bool)
 function Spell:IsUsable()
   return IsSpellUsable(self.SpellID)
 end
@@ -147,6 +156,7 @@ function Spell:IsUsableP(Offset)
         local Type = CostInfo.type
         if Player.PredictedResourceMap[Type]() < ((self.CustomCost and self.CustomCost[Type] and self.CustomCost[Type]()) or CostInfo.minCost) + (Offset or 0) then
           Usable = false
+          break
         end
         i = i + 1
     end
@@ -269,9 +279,12 @@ do
     for _, SpecSpells in pairs(ClassesSpecsBySpecID[SpecID][1]) do
       for _, ThisSpell in pairs(SpecSpells) do
         local SpellID = ThisSpell:ID()
-        local TickTimeInfo = SpellTickTime[SpellID][1]
-        if TickTimeInfo ~= nil then
-          RegisteredSpells[SpellID] = TickTimeInfo
+        local SpellData = SpellTickTime[SpellID]
+        if SpellData then
+          local TickTimeInfo = SpellData[1]
+          if TickTimeInfo ~= nil then
+            RegisteredSpells[SpellID] = TickTimeInfo
+          end
         end
       end
     end
@@ -288,10 +301,14 @@ do
 
   -- action.foo.tick_time
   function Spell:TickTime()
-    local BaseTickTime = self:BaseTickTime()
-    if not BaseTickTime or BaseTickTime == 0 then return 0 end
+    local Tick = SpellTickTime[self:ID()]
+    if not Tick or Tick == 0 then return 0 end
 
-    local Hasted = SpellTickTime[self:ID()][2]
+    local BaseTickTime = Tick[1]
+    if not BaseTickTime or BaseTickTime == 0 then return 0 end
+    BaseTickTime = BaseTickTime / 1000
+
+    local Hasted = Tick[2]
     if Hasted then return BaseTickTime * Player:SpellHaste() end
 
     return BaseTickTime
@@ -310,7 +327,7 @@ do
   end
 
   function Spell:MaxDuration()
-    local Duration = SpellDuration[self.SpellID]
+    local Duration = SpellDuration[self:ID()]
     if not Duration or Duration == 0 then return 0 end
 
     return Duration[2] / 1000

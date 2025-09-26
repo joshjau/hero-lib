@@ -14,6 +14,8 @@ local Item              = HL.Item
 -- Base API locals
 local GetActionInfo     = GetActionInfo
 -- Accepts: slot; Returns: actionType (string), id (mixed: ID for spells/items, names for equipment sets), subType (string)
+local GetActionCount    = GetActionCount
+-- Accepts: slot; Returns: count (number)
 local GetActionText     = GetActionText
 -- Accepts: slot; Returns: text (string)
 local GetActionTexture  = GetActionTexture
@@ -191,12 +193,12 @@ local function GetButtonInfo(ActionSlot, Blizzard)
     -- Blizzard
     ButtonBaseName = ButtonByAddOn.Blizzard[BarIndex][1]
 
-    if BarIndex >= 3 or BarIndex <= 6 then
-      -- Bar 3 to 6: MultiBarXXXButton
-      ButtonSlot = BarSlot
-    else
-      -- Bar 1 to 2 and 7 to 10: ActionButton
+    if BarIndex == 1 then
+      -- Bar 1: ActionButton (can use ActionSlot for extended range)
       ButtonSlot = ActionSlot
+    else
+      -- Bars 2-10: MultiBarXXXButton (always use BarSlot 1-12)
+      ButtonSlot = BarSlot
     end
   end
 
@@ -240,7 +242,7 @@ local function GetCommandNameFromActionSlot(ActionSlot, Blizzard)
   local CommandNameFormat
   if Blizzard then
     _, ButtonSlot = GetButtonInfo(ActionSlot, true)
-    if (GetBonusBarOffset() > 0 and (BarIndex < 3 or BarIndex > 6) and (Cache.Persistent.Player.Class[1] == "Rogue" or Cache.Persistent.Player.Class[1] == "Druid")) then BarIndex = 1 end
+    if (GetBonusBarOffset() > 0 and (BarIndex < 3 or BarIndex > 6)) then BarIndex = 1 end
     CommandNameFormat = ButtonByAddOn.Blizzard[BarIndex][2]
   elseif _G.Bartender4 then
     -- Bartender
@@ -257,7 +259,7 @@ local function GetCommandNameFromActionSlot(ActionSlot, Blizzard)
     CommandNameFormat = ButtonByAddOn.ElvUI[BarIndex][2]
   else
     -- Blizzard
-    if (GetBonusBarOffset() > 0 and (BarIndex < 3 or BarIndex > 6) and (Cache.Persistent.Player.Class[1] == "Rogue" or Cache.Persistent.Player.Class[1] == "Druid")) then BarIndex = 1 end
+    if (GetBonusBarOffset() > 0 and (BarIndex < 3 or BarIndex > 6)) then BarIndex = 1 end
     CommandNameFormat = ButtonByAddOn.Blizzard[BarIndex][2]
   end
 
@@ -324,7 +326,7 @@ local function UpdateAction(ActionSlot)
   if not HasAction(ActionSlot) then return end
 
   -- Update the action info.
-  local ActionType, ActionID, ActionSubType = GetActionInfo(ActionSlot)
+  local ActionType, ActionID, ActionSubType, ActionSpellID, ActionGlobalID = GetActionInfo(ActionSlot)
   if ActionID then
     if ActionType == "spell" then
       AddActionSlotsByValue("Spell", ActionID, ActionSlot)
@@ -345,6 +347,8 @@ local function UpdateAction(ActionSlot)
     AddActionSlotsByValue("Text", ActionText, ActionSlot)
   end
 
+  local ActionCount = GetActionCount(ActionSlot)
+
   local CommandName = GetCommandNameFromActionSlot(ActionSlot)
   local RawHotKey = (CommandName and GetBindingKey(CommandName)) or nil
 
@@ -360,8 +364,11 @@ local function UpdateAction(ActionSlot)
     Type = ActionType,
     ID = ActionID,
     SubType = ActionSubType,
+    SpellID = ActionSpellID,
+    GlobalID = ActionGlobalID,
     Texture = ActionTexture,
     Text = ActionText,
+    Count = ActionCount,
     CommandName = CommandName,
     HotKey = ActionHotKey
   }
@@ -382,10 +389,10 @@ local function FindAction(Type, Identifier)
   local ActionSlots = ActionSlotsBy[Type][Identifier]
   if not ActionSlots then return end
 
-  -- If stealthed Rogue or form-shifted Druid, return the appropriate slot. Otherwise, return the first.
+  -- If bonus bar is active, return the appropriate slot. Otherwise, return the first.
   local ActionSlot
   local BonusBarOffset = GetBonusBarOffset()
-  if (BonusBarOffset > 0 and (Cache.Persistent.Player.Class[1] == "Rogue" or Cache.Persistent.Player.Class[1] == "Druid")) then
+  if (BonusBarOffset > 0) then
     for k,v in pairs(ActionSlots) do
       local low = (1 + (NUM_ACTIONBAR_PAGES + BonusBarOffset - 1) * NUM_ACTIONBAR_BUTTONS)
       local high = ((NUM_ACTIONBAR_PAGES + BonusBarOffset) * NUM_ACTIONBAR_BUTTONS)
@@ -419,47 +426,11 @@ function Action.FindByItemID(ItemID)
   return FindAction("Item", ItemID)
 end
 
-function Action.FindByMacroID(MacroID)
-  return FindAction("Macro", MacroID)
-end
-
 function Action.FindBySpellID(SpellID)
   return FindAction("Spell", SpellID)
 end
 
-function Action.FindByText(Text)
-  return FindAction("Text", Text)
-end
 
-function Action.FindByTextureID(TextureID)
-  return FindAction("Texture", TextureID)
-end
-
-do
-  local function WhitelistHotKey(Type, Identifier, HotKey)
-    HotKeyWhitelist[Type][Identifier] = HotKey
-  end
-
-  function Action.WhitelistItemHotKey(ItemID, HotKey)
-    WhitelistHotKey("Item", ItemID, HotKey)
-  end
-
-  function Action.WhitelistMacroHotKey(MacroID, HotKey)
-    WhitelistHotKey("Macro", MacroID, HotKey)
-  end
-
-  function Action.WhitelistSpellHotKey(SpellID, HotKey)
-    WhitelistHotKey("Spell", SpellID, HotKey)
-  end
-
-  function Action.WhitelistTextHotKey(Text, HotKey)
-    WhitelistHotKey("Text", Text, HotKey)
-  end
-
-  function Action.WhitelistTextureHotKey(TextureID, HotKey)
-    WhitelistHotKey("Texture", TextureID, HotKey)
-  end
-end
 
 do
   local function HotKey(Type, Identifier)
@@ -474,22 +445,6 @@ do
     end
 
     return nil
-  end
-
-  function Action.ItemHotKey(ItemID)
-    return HotKey("Item", ItemID)
-  end
-
-  function Action.MacroHotKey(MacroID)
-    return HotKey("Macro", MacroID)
-  end
-
-  function Action.SpellHotKey(SpellID)
-    return HotKey("Spell", SpellID)
-  end
-
-  function Action.TextHotKey(Text)
-    return HotKey("Text", Text)
   end
 
   function Action.TextureHotKey(TextureID)
