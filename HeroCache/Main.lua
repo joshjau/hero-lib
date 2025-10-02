@@ -3,6 +3,7 @@
 -- Addon
 local addonName, Cache = ...
 -- Lua
+local select = select
 local wipe = wipe
 -- File Locals
 if not HeroCacheDB then
@@ -32,19 +33,21 @@ Cache.Persistent = {
     Class = { UnitClass("player") },
     Spec = {},
     HeroTrees = {},
-    ActiveHeroTree = {},
-    ActiveHeroTreeID = {},
+    ActiveHeroTree = nil,
+    ActiveHeroTreeID = nil,
   },
   BookIndex = { Pet = {}, Player = {} },
   SpellLearned = { Pet = {}, Player = {} },
   Texture = { Spell = {}, Item = {}, Custom = {} },
-  ElvUIPaging = { PagingString, PagingStrings = {}, PagingBars = {} },
-  Talents = { Rank }
+  ElvUIPaging = { PagingStrings = {}, PagingBars = {} },
+  Talents = {}
 }
 
 -- Reset the cache.
 Cache.HasBeenReset = false
 function Cache.Reset()
+  -- Guarded: HeroLib's pulse clears HasBeenReset and calls this once per update cycle,
+  -- while HeroRotation invokes it again later in the frame. The flag prevents redundant wipes.
   if not Cache.HasBeenReset then
     wipe(Cache.APLVar)
     wipe(Cache.Enemies.ItemAction)
@@ -64,8 +67,6 @@ end
 
 local MakeCache
 do
-  local select = select
-
   local function makeArgs(n)
     local args = {}
     for i = 1, n do
@@ -169,7 +170,7 @@ end]=],
     })
   end
 
-  -- 'global' arrays containing laodstring()ed functions
+  -- 'global' arrays containing loadstring()ed functions
   local cacheGetters = initGlobal(makeGetter)
   local cacheSetters = initGlobal(makeSetter)
   local cacheGetSetters = initGlobal(makeGetSetter)
